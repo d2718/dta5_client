@@ -49,7 +49,7 @@ CONFIG_DATA = [
 dconfig.add_options(CONFIG_DATA)
 
 NEWS_FILE = 'fe_news.txt'
-CONFIG_FILES = [os.path.expanduser('~/.dta4'),
+CONFIG_FILES = [os.path.expanduser('~/.dta5'),
                 'client_config.cfg']
 if DEBUG:
     CONFIG_FILES.insert(0, 'test_config.cfg')
