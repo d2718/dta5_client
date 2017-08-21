@@ -1,0 +1,10 @@
+# dta5_client gitignore
+
+# compiled Go binaries
+termfe
+
+# "compiled" Python libraries
+*.pyc
+
+# log files
+*.log
