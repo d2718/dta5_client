@@ -30,7 +30,7 @@ Some missing features that may exist in the future:
 
   * command history (This is the biggest priority.)
   * ~~The command input window does not scroll horizontally, so you won't be able to see the ends of large commands as you type them. (This is also a big priority.)~~ The behavior isn't exactly how I'd like it to be, but it'll do for now.
-  * Home and End should do the right thing in the input window.
+  * ~~Home and End should do the right thing in the input window.~~ These work now.
   * logout messaging doesn't display
   * The footer bar should display some information. (This will evolve as `dta5` evolves and there is some information about your character to display.)
   * logging of game text
