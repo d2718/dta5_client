@@ -5,28 +5,37 @@
 //
 package main
 
-import( "bufio"; "encoding/json"; "fmt"; "io"; "log"; "net"; "os";
-        "regexp"; "strings";
+import( "bufio"; "encoding/json"; "fmt"; "io"; "io/ioutil"; "log";
+        "net"; "os"; "regexp"; "strings";
         "github.com/nsf/termbox-go";
         "github.com/d2718/dconfig";
 )
 
+const DEBUG bool = false
+
 // Configurable Values
+// (Some are currently configurable; some are potentially configurable at
+// some point in the future.)
 
 var host = "localhost"
 var port = 10102
 
-var SpeechFg = termbox.ColorGreen
-var SpeechBg = termbox.ColorBlack
+var SpeechFg   = termbox.ColorGreen
+var SpeechBg   = termbox.ColorBlack
 var HeadTailFg = termbox.ColorWhite
 var HeadTailBg = termbox.ColorBlue
-var EchoFg = termbox.ColorYellow | termbox.AttrBold
+var EchoFg = termbox.ColorYellow
 var EchoBg = termbox.ColorBlack
+var SkipAfterSend = true
+var ShowNews      = true
 
 var MaxScrollbackLines = 512
 var MinScrollbackLines = 256
 
-var SpeechRe = regexp.MustCompile(`^\S+ (says?|asks?|exclaims?)[^"]+`)
+var SpeechRe = regexp.MustCompile(`^[^"]+ (says?|asks?|exclaims?)[^"]+`)
+var NewsFile = "fe_news.txt"
+var LogFileName  = "termfe.log"
+var LogFile *os.File
 
 type CharClass int
 
@@ -144,6 +153,10 @@ func (l *Line) Wrap(width int) {
   goto word_end
   
   end:
+  if len(starts) == 0 {
+    starts = []int{0}
+    ends   = []int{0}
+  }
   l.Starts = starts
   l.Ends   = ends
   l.Width  = width
@@ -440,7 +453,10 @@ func HandleEvent(e termbox.Event) {
   
     if e.Ch != 0 {
       InsertInInput(e.Ch)
-      FootLine = NewLine(fmt.Sprintf("Ch: %d, Mod: %d", e.Ch, e.Mod), HeadTailFg, HeadTailBg)
+      if DEBUG {
+        FootLine = NewLine(fmt.Sprintf("Ch: %d, Mod: %d", e.Ch, e.Mod),
+                           HeadTailFg, HeadTailBg)
+      }
     } else {
       switch e.Key {
       case termbox.KeySpace:
@@ -461,12 +477,18 @@ func HandleEvent(e termbox.Event) {
         ScrollForward()
       case termbox.KeyF12:
         ScrollToFront()
-      case termbox.KeyF1:
-        KeepRunning = false
+      //~ case termbox.KeyF1:
+        //~ KeepRunning = false
       }
-      FootLine = NewLine(fmt.Sprintf("Key: %d, Mod: %d", e.Key, e.Mod), HeadTailFg, HeadTailBg)
+      if DEBUG {
+        FootLine = NewLine(fmt.Sprintf("Key: %d, Mod: %d", e.Key, e.Mod),
+                           HeadTailFg, HeadTailBg)
+      }
     }
-    DrawFootline()
+    
+    if DEBUG {
+      DrawFootline()
+    }
     
   case termbox.EventResize:
     log.Println("Rec'd EventResize: (", e.Width, e.Height, ")")
@@ -532,6 +554,9 @@ func ProcessEnvelope(e Env) {
     DrawHeadLine()
   case "echo":
     echo_line := NewLine(e.Text, EchoFg, EchoBg)
+    if SkipAfterSend {
+      AddDefaultLine(" ")
+    }
     AddLine(echo_line)
     DrawScrollback()
   case "speech":
@@ -559,21 +584,36 @@ func Config() {
   dconfig.AddString(&host,            "host", dconfig.STRIP)
   dconfig.AddInt(&port,               "port", dconfig.UNSIGNED)
   dconfig.AddInt(&MinScrollbackLines, "scrollback", dconfig.UNSIGNED)
+  dconfig.AddBool(&SkipAfterSend,     "extra_line")
+  dconfig.AddBool(&ShowNews,          "show_news")
   dconfig.Configure([]string{"dta5.conf"}, true)
   
   MaxScrollbackLines = 2 * MinScrollbackLines
 }
 
 func main() {
-  
-  logf, err := os.OpenFile("term.log", os.O_TRUNC|os.O_WRONLY|os.O_CREATE, 0644)
-  if err != nil {
-    panic(err)
-  }
-  defer logf.Close()
-  log.SetOutput(logf)
-  
+  var err error
   Config()
+  
+  if DEBUG {
+    LogFile, err = os.OpenFile(LogFileName, os.O_TRUNC|os.O_WRONLY|os.O_CREATE, 0644)
+    if err != nil {
+      panic(err)
+    }
+    defer LogFile.Close()
+    log.SetOutput(LogFile)
+  } else {
+    log.SetFlags(0)
+    log.SetOutput(ioutil.Discard)
+  }
+
+  if ShowNews {
+    newsf, err := os.Open(NewsFile)
+    if err == nil {
+      bufio.NewReader(newsf).WriteTo(os.Stdout)
+      fmt.Printf("\n")
+    }
+  }
   
   login_scanner := bufio.NewScanner(os.Stdin)
   fmt.Printf("login: ")

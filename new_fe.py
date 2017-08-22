@@ -18,7 +18,7 @@ import djsock
 DEBUG = False
 DEBUG_ATTR = wx.TextAttr('#ff88ff')
 
-CLIENT_VERSION = 170817
+CLIENT_VERSION = 170818
 
 CONFIG_DATA = [
   # 100 normal-sized terminal windows
@@ -263,9 +263,9 @@ class LoginWindow(wx.Frame):
     the_socket = djsock.DJSocket(HOST, PORT, COMM_TIMEOUT)
     msg = the_socket.suck_read(1.0)
     print(msg)
-    the_socket.enque({"Type": "version", "Payload": "{}".format(CLIENT_VERSION)})
-    the_socket.enque({"Type": "uname", "Payload": uname})
-    the_socket.enque({"Type": "pwd",   "Payload": paswd})
+    the_socket.enque({"Type": "version", "Text": "{}".format(CLIENT_VERSION)})
+    the_socket.enque({"Type": "uname", "Text": uname})
+    the_socket.enque({"Type": "pwd",   "Text": paswd})
     the_socket.send()
 
     self.spawn_main_window(the_socket)
@@ -375,6 +375,9 @@ class MainWindow(wx.Frame):
     self.scrollback.AppendText(txt)
     
   def process_text(self, txt):
+    self.add_to_scrollback(txt)
+  
+  def process_speech(self, txt):
     m = speech_re.match(txt)
     if m:
       preamble = txt[:m.end()]
@@ -386,11 +389,13 @@ class MainWindow(wx.Frame):
 
   def process_input(self, m):
     typ = m[u'Type']
-    pld = m[u'Payload']
+    pld = m[u'Text']
     if typ == u'txt':
       self.process_text(pld)
     elif typ == u'echo':
       self.add_to_scrollback('\n' + pld, self.cmd_echo_attr)
+    elif typ == u'speech':
+      self.process_speech(pld)
     elif typ == u'headline':
       self.top_bar.SetLabel(pld)
     elif typ == u'sys':
@@ -545,7 +550,7 @@ class MainWindow(wx.Frame):
 
   def send_cmd(self, cmd):
     if len(cmd) > 0:
-      msg = {"Type": "cmd", "Payload": cmd}
+      msg = {"Type": "cmd", "Text": cmd}
       self.sock.enque(msg)
       self.sock.send()
     else:

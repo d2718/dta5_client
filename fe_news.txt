@@ -1,2 +1,24 @@
-None so far.
+DTA5 Client Update 2017-08-22:
 
+The terminal client is released! It is mostly functional.
+
+Two important features it still lacks:
+  * command history
+  * custom color settings
+  * command window does not scroll horizontally --
+    Currently, if the command you are typing is wider than
+    the terminal window, you can't see the end of it.
+
+I would also like to eventually implement arbitrary
+user-defined color highlights, but that's a major project
+for the future.
+
+
+Hints for using the client:
+
+  * Backspace and Delete both work properly.
+  * Left/Right Arrow Keys will move the insertion point.
+  * PgUp/PgDn will scroll the game window history one
+    screenful (less a couple of lines) at a time.
+  * F12 will immediately scroll the game window all the
+    way down to the most current text.
