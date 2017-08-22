@@ -19,6 +19,7 @@ You should be able to just `go build termfe.go`. I have tested this on Ubuntu 16
 
 Some current features:
 
+  * You can play the game.
   * Line-wrapping and resizing both work more-or-less seamlessly. (I encountered some resizing weirdness using the PowerShell window, but the game was still playable.)
   * scrollable game window history (the number of lines you want to keep is customizable)
   * Backspace, Delete, and Left/Right Arrows allow for editing of the current command.
@@ -29,6 +30,9 @@ Some missing features that may exist in the future:
 
   * command history (This is the biggest priority.)
   * The command input window does not scroll horizontally, so you won't be able to see the ends of large commands as you type them. (This is also a big priority.)
+  * Home and End should do the right thing in the input window.
+  * logout messaging doesn't display
+  * The footer bar should display some information. (This will evolve as `dta5` evolves and there is some information about your character to display.)
   * logging of game text
   * user-customizable color (Determining a mechanism for this is going to be a significant design decision; it's possible this will only be available for `xterm-256color` terminals.)
   * Eventually I would like to implement some custom highlighing for user-specifiable phrases, but that's an even bigger design decision than just "custom colors".
