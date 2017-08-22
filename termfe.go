@@ -24,8 +24,8 @@ var SpeechFg   = termbox.ColorGreen
 var SpeechBg   = termbox.ColorBlack
 var HeadTailFg = termbox.ColorWhite
 var HeadTailBg = termbox.ColorBlue
-var EchoFg = termbox.ColorYellow
-var EchoBg = termbox.ColorBlack
+var EchoFg     = termbox.ColorYellow
+var EchoBg     = termbox.ColorBlack
 var SkipAfterSend = true
 var ShowNews      = true
 
@@ -187,6 +187,7 @@ func (l *Line) Add(text string, fg, bg termbox.Attribute) {
 var Lines []*Line = make([]*Line, 0, 0)
 var TermW, TermH int
 var HeadY, SbackY, FootY, InputY int
+var InputRL int
 var DefaultFg, DefaultBg = termbox.ColorDefault, termbox.ColorBlack
 var HeadLine, FootLine *Line
 var Input = make([]rune, 0, 0)
@@ -223,6 +224,7 @@ func Recalculate() {
   SbackY = 1
   FootY  = TermH - 2
   InputY = TermH -1
+  InputRL = (2 * TermW) / 3
   log.Println("Recalculate()ing: HeadY, SbackY, FootY, InputY:",
               HeadY, SbackY, FootY, InputY)
 }
@@ -264,31 +266,49 @@ func DrawFootline() {
 }
 
 func DrawInput() {
-  
-  //~ log.Println("DrawInput() called...")
-  //~ log.Println("Input:", string(Input))
-  //~ log.Println("IP, TermW:", IP, TermW)
-  
   var n int = 0
-  for ; n < IP; n++ {
-    termbox.SetCell(n, InputY, Input[n], DefaultFg, DefaultBg)
+  var scroll int = 0
+  
+  if IP > InputRL {
+    scroll = IP - InputRL
+  }
+  if scroll < 0 {
+    scroll = 0
+  }
+  
+  ip_pos := IP - scroll
+  input_end := len(Input) - scroll
+  
+  for n := 0; n < ip_pos; n++ {
+    termbox.SetCell(n, InputY, Input[n+scroll], DefaultFg, DefaultBg)
   }
   if IP == len(Input) {
-    termbox.SetCell(IP, InputY, ' ', DefaultFg | termbox.AttrReverse,
-                                     DefaultBg | termbox.AttrReverse)
-    for n = IP+1; n < TermW; n++ {
+    termbox.SetCell(ip_pos, InputY, ' ', DefaultFg | termbox.AttrReverse,
+                                         DefaultBg | termbox.AttrReverse)
+    for n = ip_pos+1; n < TermW; n++ {
       termbox.SetCell(n, InputY, ' ', DefaultFg, DefaultBg)
     }
   } else {
-    termbox.SetCell(IP, InputY, Input[IP], DefaultFg | termbox.AttrReverse,
-                                           DefaultBg | termbox.AttrReverse)
-    for n = IP+1; n < len(Input); n++ {
-      termbox.SetCell(n, InputY, Input[n], DefaultFg, DefaultBg)
+    termbox.SetCell(ip_pos, InputY, Input[IP], DefaultFg | termbox.AttrReverse, 
+                                               DefaultBg | termbox.AttrReverse)
+    for n = ip_pos+1; n < input_end; n++ {
+      termbox.SetCell(n, InputY, Input[n+scroll], DefaultFg, DefaultBg)
     }
-    for n = len(Input); n < TermW; n++ {
+    for n = input_end; n < TermW; n++ {
       termbox.SetCell(n, InputY, ' ', DefaultFg, DefaultBg)
     }
   }
+  
+  if scroll > 0 {
+    termbox.SetCell(0, InputY, '<', DefaultFg | termbox.AttrReverse,
+                                    DefaultBg | termbox.AttrReverse)
+  }
+  if len(Input) > scroll + TermW {
+    termbox.SetCell(TermW - 1, InputY, '>', DefaultFg | termbox.AttrReverse,
+                                            DefaultBg | termbox.AttrReverse)
+  }
+  
+  
 }
 
 func DrawLineChunk(l *Line, chunk int, y int) {
@@ -469,6 +489,10 @@ func HandleEvent(e termbox.Event) {
         MoveInputIp(-1)
       case termbox.KeyArrowRight:
         MoveInputIp(1)
+      case termbox.KeyHome:
+        MoveInputIp(-len(Input))
+      case termbox.KeyEnd:
+        MoveInputIp(len(Input))
       case 13:    // return
         SendCommand()
       case termbox.KeyPgup:
