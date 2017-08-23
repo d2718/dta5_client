@@ -31,6 +31,8 @@ var ShowNews      = true
 
 var MaxScrollbackLines = 512
 var MinScrollbackLines = 256
+var MaxCmdHistSize     = 128
+var MinCmdHistSize     = 64
 
 var SpeechRe = regexp.MustCompile(`^[^"]+ (says?|asks?|exclaims?)[^"]+`)
 var NewsFile = "fe_news.txt"
@@ -193,14 +195,17 @@ var HeadLine, FootLine *Line
 var Input = make([]rune, 0, 0)
 var IP int = 0
 var ScrollbackPos int = 0
-// var TermLock = new(sync.Mutex)
+var cmdHist = make([]string, 0, 0)
+var cmdHistPtr int = 0
+var minCmdLen int = 3
+var cmdStash []rune
 var EventChan = make(chan termbox.Event)
 var KeepRunning = true
 var CanScrollBack = false
 
 func AddLine(newLine *Line) {
   log.Println("AddLine(", newLine.String(), "):")
-  if len(Lines) > MaxScrollbackLines {
+  if len(Lines) >= MaxScrollbackLines {
     log.Println("    reallocating buffer")
     new_lines := make([]*Line, 0, MaxScrollbackLines)
     new_lines = append(new_lines, Lines[len(Lines)-MinScrollbackLines:]...)
@@ -433,20 +438,30 @@ func MoveInputIp(delta int) {
   DrawInput()
 }
 
-//~ func SendCommand() {
-  //~ log.Println("SendCommand() called...")
-  //~ if len(Input) > 0 {
-    //~ log.Println("Input is", string(Input))
-    //~ Lines = append(Lines, NewLine(string(Input), DefaultFg, DefaultBg))
-    //~ Input = make([]rune, 0, 0)
-    //~ IP = 0
-  
-    //~ DrawScrollback()
-    //~ DrawInput()
-  //~ }
-  
-  //~ log.Println("...SendCommand() finished")
-//~ }
+func CmdHistBack() {
+  if cmdHistPtr > 0 {
+    if cmdHistPtr == len(cmdHist) {
+      cmdStash = Input
+    }
+    cmdHistPtr--
+    Input = []rune(cmdHist[cmdHistPtr])
+    IP = len(Input)
+    DrawInput()
+  }
+}
+
+func CmdHistForward() {
+  if cmdHistPtr < len(cmdHist) {
+    cmdHistPtr++
+    if cmdHistPtr == len(cmdHist) {
+      Input = cmdStash
+    } else {
+      Input = []rune(cmdHist[cmdHistPtr])
+    }
+    IP = len(Input)
+    DrawInput()
+  }
+}
 
 func SendCommand() {
   log.Println("SendCommand():")
@@ -454,6 +469,24 @@ func SendCommand() {
     e := Env{ Type: "cmd", Text: string(Input) }
     ncdr.Encode(e)
     log.Println("    sent:", e)
+    if len(Input) >= minCmdLen {
+      if len(cmdHist) == 0 {
+        cmdHist = append(cmdHist, string(Input))
+      } else {
+        cmd_str := string(Input)
+        if cmd_str != cmdHist[len(cmdHist)-1] {
+          cmdHist = append(cmdHist, cmd_str)
+        }
+      }
+    }
+    
+    if len(cmdHist) >= MaxCmdHistSize {
+      new_hist := make([]string, 0, MaxCmdHistSize)
+      new_hist = append(new_hist, cmdHist[len(cmdHist)-MinCmdHistSize:]...)
+      cmdHist = new_hist
+    }
+    
+    cmdHistPtr = len(cmdHist)
     Input = make([]rune, 0, 0)
     IP = 0
     DrawInput()
@@ -495,14 +528,16 @@ func HandleEvent(e termbox.Event) {
         MoveInputIp(len(Input))
       case 13:    // return
         SendCommand()
+      case termbox.KeyArrowUp:
+        CmdHistBack()
+      case termbox.KeyArrowDown:
+        CmdHistForward()
       case termbox.KeyPgup:
         ScrollBackward()
       case termbox.KeyPgdn:
         ScrollForward()
       case termbox.KeyF12:
         ScrollToFront()
-      //~ case termbox.KeyF1:
-        //~ KeepRunning = false
       }
       if DEBUG {
         FootLine = NewLine(fmt.Sprintf("Key: %d, Mod: %d", e.Key, e.Mod),
@@ -605,14 +640,17 @@ func ProcessEnvelope(e Env) {
 
 func Config() {
   dconfig.Reset()
-  dconfig.AddString(&host,            "host", dconfig.STRIP)
-  dconfig.AddInt(&port,               "port", dconfig.UNSIGNED)
+  dconfig.AddString(&host,            "host",       dconfig.STRIP)
+  dconfig.AddInt(&port,               "port",       dconfig.UNSIGNED)
   dconfig.AddInt(&MinScrollbackLines, "scrollback", dconfig.UNSIGNED)
   dconfig.AddBool(&SkipAfterSend,     "extra_line")
   dconfig.AddBool(&ShowNews,          "show_news")
+  dconfig.AddInt(&minCmdLen,          "min_cmd_len", dconfig.UNSIGNED)
+  dconfig.AddInt(&MinCmdHistSize,     "cmd_history", dconfig.UNSIGNED)
   dconfig.Configure([]string{"dta5.conf"}, true)
   
   MaxScrollbackLines = 2 * MinScrollbackLines
+  MaxCmdHistSize     = 2 * MinCmdHistSize
 }
 
 func main() {

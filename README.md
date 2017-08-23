@@ -1,6 +1,6 @@
 # `dta5_client`
 
-This is like `dta4_client`, but for [`dta5`](https://github.com/d2718/dta5). The code is basically the same, except `dta5` uses JSON instead of a `_PREFIX:data` communication protocol.
+This is like [`dta4_client`](https://github.com/d2718/dta4_client), but for [`dta5`](https://github.com/d2718/dta5). The code is basically the same, except `dta5` uses JSON instead of a `_PREFIX:data` communication protocol.
 
 ### UPDATE 2017-08-22:
 
@@ -22,13 +22,14 @@ Some current features:
   * You can play the game.
   * Line-wrapping and resizing both work more-or-less seamlessly. (I encountered some resizing weirdness using the PowerShell window, but the game was still playable.)
   * scrollable game window history (the number of lines you want to keep is customizable)
-  * Backspace, Delete, and Left/Right Arrows allow for editing of the current command.
+  * Backspace, Delete, Left/Right Arrows, and Home/End keys allow for editing of the current command.
+  * Command history accessed through up/down arrow keys.
   * Color.
   * A header bar at the top of the window displays the name of your current location.
 
 Some missing features that may exist in the future:
 
-  * command history (This is the biggest priority.)
+  * ~~command history (This is the biggest priority.)~~ There is command history!
   * ~~The command input window does not scroll horizontally, so you won't be able to see the ends of large commands as you type them. (This is also a big priority.)~~ The behavior isn't exactly how I'd like it to be, but it'll do for now.
   * ~~Home and End should do the right thing in the input window.~~ These work now.
   * logout messaging doesn't display
