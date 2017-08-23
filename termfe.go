@@ -202,6 +202,7 @@ var cmdStash []rune
 var EventChan = make(chan termbox.Event)
 var KeepRunning = true
 var CanScrollBack = false
+var LogoutMessages = make([]string, 0, 0)
 
 func AddLine(newLine *Line) {
   log.Println("AddLine(", newLine.String(), "):")
@@ -630,7 +631,7 @@ func ProcessEnvelope(e Env) {
     DrawScrollback()
   case "logout":
     KeepRunning = false
-    fmt.Printf("%s\n", e.Text)
+    LogoutMessages = append(LogoutMessages, e.Text)
   default:
     log.Println("Unknown Env type:", e)
   }
@@ -651,6 +652,13 @@ func Config() {
   
   MaxScrollbackLines = 2 * MinScrollbackLines
   MaxCmdHistSize     = 2 * MinCmdHistSize
+}
+
+func Finalize() {
+  termbox.Close()
+  for _, m := range LogoutMessages {
+    fmt.Printf("%s\n", m)
+  }
 }
 
 func main() {
@@ -711,7 +719,7 @@ func main() {
   if err != nil {
     panic(err)
   }
-  defer termbox.Close()
+  defer Finalize()  // includes call to termbox.Close()
   log.Println("termbox initialized")
   
   termbox.SetInputMode(termbox.InputAlt)
