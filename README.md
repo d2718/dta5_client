@@ -23,7 +23,7 @@ Some current features:
   * Line-wrapping and resizing both work more-or-less seamlessly. (I encountered some resizing weirdness using the PowerShell window, but the game was still playable.)
   * scrollable game window history (the number of lines you want to keep is customizable)
   * Backspace, Delete, Left/Right Arrows, and Home/End keys allow for editing of the current command.
-  * Command history accessed through up/down arrow keys.
+  * Command history accessed through Up/Down Arrow keys.
   * Color.
   * A header bar at the top of the window displays the name of your current location.
 
