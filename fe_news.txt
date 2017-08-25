@@ -10,6 +10,8 @@ user-defined color highlights, but that's a major project
 for the future.
 
 2017-08-23: Logout messaging displays properly.
+2017-08-24: The -c option now allows specification of an
+            alternate configuration file.
 
 
 Hints for using the client:

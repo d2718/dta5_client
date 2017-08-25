@@ -26,6 +26,7 @@ Some current features:
   * Command history accessed through Up/Down Arrow keys.
   * Color.
   * A header bar at the top of the window displays the name of your current location.
+  * The `-c` option now allows the specification of an alternate configuration file.
 
 Some missing features that may exist in the future:
 

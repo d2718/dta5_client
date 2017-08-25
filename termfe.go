@@ -1,17 +1,18 @@
 //
 // DTA5 terminal frontend
 //
-// 2017-08-20
+// 2017-08-24
 //
 package main
 
-import( "bufio"; "encoding/json"; "fmt"; "io"; "io/ioutil"; "log";
-        "net"; "os"; "regexp"; "strings";
+import( "bufio"; "encoding/json"; "flag"; "fmt"; "io"; "io/ioutil";
+        "log"; "net"; "os"; "regexp"; "strings";
         "github.com/nsf/termbox-go";
         "github.com/d2718/dconfig";
 )
 
 const DEBUG bool = false
+const clientVersion = 170823
 
 // Configurable Values
 // (Some are currently configurable; some are potentially configurable at
@@ -26,14 +27,19 @@ var HeadTailFg = termbox.ColorWhite
 var HeadTailBg = termbox.ColorBlue
 var EchoFg     = termbox.ColorYellow
 var EchoBg     = termbox.ColorBlack
+var SysFg      = termbox.ColorMagenta
+var SysBg      = termbox.ColorBlack
 var SkipAfterSend = true
 var ShowNews      = true
+var Uname = ""
+var Pwd   = ""
 
 var MaxScrollbackLines = 512
 var MinScrollbackLines = 256
 var MaxCmdHistSize     = 128
 var MinCmdHistSize     = 64
 
+var DefaultCfgFile = "dta5.conf"
 var SpeechRe = regexp.MustCompile(`^[^"]+ (says?|asks?|exclaims?)[^"]+`)
 var NewsFile = "fe_news.txt"
 var LogFileName  = "termfe.log"
@@ -394,6 +400,16 @@ func DrawScrollback() {
     }
     yp--
   }
+  
+  if ScrollbackPos > 0 {
+    termbox.SetCell(TermW-1, FootY-1, 'v', DefaultFg | termbox.AttrReverse,
+                                           DefaultBg | termbox.AttrReverse)
+  }
+  if CanScrollBack {
+    termbox.SetCell(TermW-1, SbackY, '^', DefaultFg | termbox.AttrReverse,
+                                          DefaultBg | termbox.AttrReverse)
+  }
+  
   log.Println("...DrawScrollback() finished")
 }
 
@@ -578,7 +594,6 @@ type Env struct {
 }
 
 var EnvChan = make(chan Env, 256)
-const clientVersion = 170821
 var ncdr *json.Encoder
 var dcdr *json.Decoder
 
@@ -604,7 +619,7 @@ func ListenForEnvelopes(d *json.Decoder) {
 func ProcessEnvelope(e Env) {
   switch e.Type {
   
-  case "txt", "wall", "sys":
+  case "txt":
     for _, line := range strings.Split(e.Text, "\n") {
       AddDefaultLine(line)
     }
@@ -613,11 +628,11 @@ func ProcessEnvelope(e Env) {
     HeadLine = NewLine(e.Text, HeadTailFg, HeadTailBg)
     DrawHeadLine()
   case "echo":
-    echo_line := NewLine(e.Text, EchoFg, EchoBg)
     if SkipAfterSend {
       AddDefaultLine(" ")
     }
-    AddLine(echo_line)
+    AddLine(NewLine(e.Text, EchoFg, EchoBg))
+    ScrollbackPos = 0
     DrawScrollback()
   case "speech":
     idxs := SpeechRe.FindStringIndex(e.Text)
@@ -627,6 +642,11 @@ func ProcessEnvelope(e Env) {
       new_line := NewLine(e.Text[:idxs[1]], SpeechFg, SpeechBg)
       new_line.Add(e.Text[idxs[1]:], DefaultFg, DefaultBg)
       AddLine(new_line)
+    }
+    DrawScrollback()
+  case "wall", "sys":
+    for _, line := range strings.Split(e.Text, "\n") {
+      AddLine(NewLine(line, SysFg, SysBg))
     }
     DrawScrollback()
   case "logout":
@@ -640,6 +660,10 @@ func ProcessEnvelope(e Env) {
 }
 
 func Config() {
+  var cfg_file string
+  flag.StringVar(&cfg_file, "c", DefaultCfgFile, "configuration file to use")
+  flag.Parse()
+  
   dconfig.Reset()
   dconfig.AddString(&host,            "host",       dconfig.STRIP)
   dconfig.AddInt(&port,               "port",       dconfig.UNSIGNED)
@@ -648,7 +672,9 @@ func Config() {
   dconfig.AddBool(&ShowNews,          "show_news")
   dconfig.AddInt(&minCmdLen,          "min_cmd_len", dconfig.UNSIGNED)
   dconfig.AddInt(&MinCmdHistSize,     "cmd_history", dconfig.UNSIGNED)
-  dconfig.Configure([]string{"dta5.conf"}, true)
+  dconfig.AddString(&Uname,           "uname",       dconfig.STRIP)
+  dconfig.AddString(&Pwd,             "pwd",         dconfig.STRIP)
+  dconfig.Configure([]string{cfg_file}, true)
   
   MaxScrollbackLines = 2 * MinScrollbackLines
   MaxCmdHistSize     = 2 * MinCmdHistSize
@@ -657,7 +683,7 @@ func Config() {
 func Finalize() {
   termbox.Close()
   for _, m := range LogoutMessages {
-    fmt.Printf("%s\n", m)
+    fmt.Printf("\n%s\n", m)
   }
 }
 
@@ -676,6 +702,8 @@ func main() {
     log.SetFlags(0)
     log.SetOutput(ioutil.Discard)
   }
+  
+  fmt.Printf("DTA5 Client v.%d\n\n", clientVersion)
 
   if ShowNews {
     newsf, err := os.Open(NewsFile)
@@ -685,13 +713,22 @@ func main() {
     }
   }
   
+  var uname, pwd string
   login_scanner := bufio.NewScanner(os.Stdin)
-  fmt.Printf("login: ")
-  login_scanner.Scan()
-  uname := login_scanner.Text()
-  fmt.Printf("password: ")
-  login_scanner.Scan()
-  pwd := login_scanner.Text()
+  if Uname == "" {
+    fmt.Printf("login: ")
+    login_scanner.Scan()
+    uname = login_scanner.Text()
+  } else {
+    uname = Uname
+  }
+  if Pwd == "" {
+    fmt.Printf("password: ")
+    login_scanner.Scan()
+    pwd = login_scanner.Text()
+  } else {
+    pwd = Pwd
+  }
   
   conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", host, port))
   die(err, "Error connecting to %s:%d: %s\n", host, port, err)
