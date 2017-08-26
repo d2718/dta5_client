@@ -19,6 +19,7 @@ Some current features:
   * Color.
   * A header bar at the top of the window displays the name of your current location.
   * The `-c` option now allows the specification of an alternate configuration file.
+  * The terminal window no longer echoes your password in plain text as you type it.
 
 Some missing features that may exist in the future:
 

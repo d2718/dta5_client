@@ -14,6 +14,8 @@ for the future.
             alternate configuration file.
 2017-08-25: The client filename has changed. It's now
             `dta5` instead of `termfe`.
+2017-08-06: The terminal window no longer echoes your
+            password in plain text as you type.
 
 Hints for using the client:
 
