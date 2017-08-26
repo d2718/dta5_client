@@ -688,6 +688,53 @@ func Finalize() {
   }
 }
 
+func getPassword() (string, error) {
+  err := termbox.Init()
+  if err != nil {
+    panic(err)
+  }
+  defer termbox.Close()
+  
+  pwd_chars := make([]rune, 0, 0)
+  prompt := "Password: "
+  lp := len(prompt)
+  
+  for {
+    w, h := termbox.Size()
+    y := h-1
+    for n, r := range prompt {
+      termbox.SetCell(n, y, r, DefaultFg, DefaultBg)
+    }
+    for n, _ := range pwd_chars {
+      termbox.SetCell(n+lp, y, '*', DefaultFg, DefaultBg)
+    }
+    for x := lp + len(pwd_chars); x < w; x++ {
+      termbox.SetCell(x, y, ' ', DefaultFg, DefaultBg)
+    }
+    termbox.Flush()
+    
+    e := termbox.PollEvent()
+    switch e.Type {
+    case termbox.EventKey:
+      if e.Ch != 0 {
+        pwd_chars = append(pwd_chars, e.Ch)
+      } else {
+        switch e.Key {
+        case termbox.KeyBackspace, 127:
+          if len(pwd_chars) > 0 {
+            pwd_chars = pwd_chars[:len(pwd_chars)-1]
+          }
+        case 13:
+          return string(pwd_chars), nil
+        case termbox.KeyEsc:
+          return string(pwd_chars), fmt.Errorf("You cancelled password entry.")
+        }
+      }
+    }
+  }
+}
+    
+
 func main() {
   var err error
   Config()
@@ -724,9 +771,11 @@ func main() {
     uname = Uname
   }
   if Pwd == "" {
-    fmt.Printf("password: ")
-    login_scanner.Scan()
-    pwd = login_scanner.Text()
+    pwd, err = getPassword()
+    if err != nil {
+      fmt.Sprintf("Error getting your password: %s\n", err)
+      return
+    }
   } else {
     pwd = Pwd
   }
