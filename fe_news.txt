@@ -12,7 +12,8 @@ for the future.
 2017-08-23: Logout messaging displays properly.
 2017-08-24: The -c option now allows specification of an
             alternate configuration file.
-
+2017-08-25: The client filename has changed. It's now
+            `dta5` instead of `termfe`.
 
 Hints for using the client:
 
