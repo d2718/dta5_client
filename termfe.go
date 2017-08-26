@@ -12,7 +12,7 @@ import( "bufio"; "encoding/json"; "flag"; "fmt"; "io"; "io/ioutil";
 )
 
 const DEBUG bool = false
-const clientVersion = 170823
+const clientVersion = 170824
 
 // Configurable Values
 // (Some are currently configurable; some are potentially configurable at
@@ -38,12 +38,14 @@ var MaxScrollbackLines = 512
 var MinScrollbackLines = 256
 var MaxCmdHistSize     = 128
 var MinCmdHistSize     = 64
+var MinCmdLen int = 3
 
 var DefaultCfgFile = "dta5.conf"
 var SpeechRe = regexp.MustCompile(`^[^"]+ (says?|asks?|exclaims?)[^"]+`)
 var NewsFile = "fe_news.txt"
 var LogFileName  = "termfe.log"
 var LogFile *os.File
+var EventChanSize = 16
 
 type CharClass int
 
@@ -203,9 +205,8 @@ var IP int = 0
 var ScrollbackPos int = 0
 var cmdHist = make([]string, 0, 0)
 var cmdHistPtr int = 0
-var minCmdLen int = 3
 var cmdStash []rune
-var EventChan = make(chan termbox.Event)
+var EventChan = make(chan termbox.Event, EventChanSize)
 var KeepRunning = true
 var CanScrollBack = false
 var LogoutMessages = make([]string, 0, 0)
@@ -486,7 +487,7 @@ func SendCommand() {
     e := Env{ Type: "cmd", Text: string(Input) }
     ncdr.Encode(e)
     log.Println("    sent:", e)
-    if len(Input) >= minCmdLen {
+    if len(Input) >= MinCmdLen {
       if len(cmdHist) == 0 {
         cmdHist = append(cmdHist, string(Input))
       } else {
@@ -670,7 +671,7 @@ func Config() {
   dconfig.AddInt(&MinScrollbackLines, "scrollback", dconfig.UNSIGNED)
   dconfig.AddBool(&SkipAfterSend,     "extra_line")
   dconfig.AddBool(&ShowNews,          "show_news")
-  dconfig.AddInt(&minCmdLen,          "min_cmd_len", dconfig.UNSIGNED)
+  dconfig.AddInt(&MinCmdLen,          "min_cmd_len", dconfig.UNSIGNED)
   dconfig.AddInt(&MinCmdHistSize,     "cmd_history", dconfig.UNSIGNED)
   dconfig.AddString(&Uname,           "uname",       dconfig.STRIP)
   dconfig.AddString(&Pwd,             "pwd",         dconfig.STRIP)

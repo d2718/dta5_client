@@ -2,7 +2,7 @@ DTA5 Client Update 2017-08-22:
 
 The terminal client is released! It is mostly functional.
 
-Two important features it still lacks:
+One important feature it still lacks:
   * custom color settings
 
 I would also like to eventually implement arbitrary
