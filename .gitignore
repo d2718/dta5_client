@@ -1,7 +1,7 @@
 # dta5_client gitignore
 
 # compiled Go binaries
-termfe
+dta5
 
 # "compiled" Python libraries
 *.pyc
