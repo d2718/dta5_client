@@ -1,7 +1,7 @@
 //
 // DTA5 terminal frontend
 //
-// 2017-08-24
+// 2017-08-27
 //
 package main
 
@@ -12,7 +12,7 @@ import( "bufio"; "encoding/json"; "flag"; "fmt"; "io"; "io/ioutil";
 )
 
 const DEBUG bool = false
-const clientVersion = 170824
+const clientVersion = 170827
 
 // Configurable Values
 // (Some are currently configurable; some are potentially configurable at
@@ -29,24 +29,48 @@ var EchoFg     = termbox.ColorYellow
 var EchoBg     = termbox.ColorBlack
 var SysFg      = termbox.ColorMagenta
 var SysBg      = termbox.ColorBlack
+// Whether a blank line should be inserted before echoed commands to
+// increase readability.
 var SkipAfterSend = true
+// Whether the contents of fe_news.txt should be echoed to the terminal
+// window upon launch.
 var ShowNews      = true
 var Uname = ""
 var Pwd   = ""
 
+// Size of the scrollback history in Lines triggering the oldest to be
+// discarded.
 var MaxScrollbackLines = 512
+// Number of most recent lines to keep when scrollback history is being trimmed.
 var MinScrollbackLines = 256
+// When scrolling the game window history back (and forward), the number of
+// rows of text adjacent screens should have in common.
+var ScrollbackOverlap = 2
+// Number of remembered commands that triggers the command history to be
+// trimmed.
 var MaxCmdHistSize     = 128
+// Number of most recent commands to keep after trimming.
 var MinCmdHistSize     = 64
+// Minimum size (in characters) of a command for it to be remembered.
 var MinCmdLen int = 3
 
 var DefaultCfgFile = "dta5.conf"
+// Used by ProcessEnvelope() to add color to the first part of lines of
+// dialog (so they stand out).
 var SpeechRe = regexp.MustCompile(`^[^"]+ (says?|asks?|exclaims?)[^"]+`)
 var NewsFile = "fe_news.txt"
 var LogFileName  = "termfe.log"
 var LogFile *os.File
+// Number of unprocessed termbox.Events that are allowed to pile up before
+// they start getting dropped. Honestly, the program seems to run just fine
+// with an unbuffered event channel.
 var EventChanSize = 16
 
+// The CharClass type is used by the line wrapping algorithm to help
+// identify where text should be wrapped. "Breaking" characters are characters
+// that can be wrapped directly after, even in the middle of a word (so far
+// just '-', '/', '_').
+//
 type CharClass int
 
 const(  Whitespace CharClass = iota
@@ -56,8 +80,12 @@ const(  Whitespace CharClass = iota
 
 var BreakingChars = map[rune]bool{ 45: true, 47: true, 95: true }
 
+// I probably didn't need to redefine the termbox.Cell.
 type Cell termbox.Cell
 
+// (Cell) CharClass() returns what class of character (Normal, Whitespace,
+// Breaking) its receiver has. This is obviously used during wrapping.
+//
 func (c Cell) Class() CharClass {
   if c.Ch < 33 {
     return Whitespace
@@ -68,6 +96,18 @@ func (c Cell) Class() CharClass {
   }
 }
 
+// A Line represents a single newline-terminated "line" of text in the
+// game window. If it is longer than the window is wide, it will be wrapped
+// and occupy more than a single row of characters on the terminal window.
+//
+// The wrapping algorithm (see (*Line) Wrap(), below) stores the indices of
+// the Cell slice where each successive wrapped line of text should start
+// and end. The DrawScrollBack() function uses these offsets to appropriately
+// populate the game window with text.
+//
+// The Width field stores the window width for which the Line was wrapped,
+// so that it only needs to be re-wrapped if the window width changes.
+//
 type Line struct {
   C      []Cell
   Width  int
@@ -75,6 +115,8 @@ type Line struct {
   Ends   []int
 }
 
+// This is only really used for debugging and logging.
+//
 func (l Line) String() string {
   runez := make([]rune, 0, len(l.C))
   for _, ch := range l.C {
@@ -83,6 +125,9 @@ func (l Line) String() string {
   return string(runez)
 }
 
+// (Line) Len() returns the number of rows of characters the given Line has
+// been wrapped to display. It is a poorly-named function. Sorry.
+//
 func (l Line) Len() int {
   if l.Starts == nil {
     return 0
@@ -91,6 +136,8 @@ func (l Line) Len() int {
   }
 }
 
+// Return the next index after pos where the Line could break.
+//
 func (l *Line) nextWordEnd(pos int) int {
   fence := len(l.C)
   for n := pos; n < fence; n++ {
@@ -103,6 +150,9 @@ func (l *Line) nextWordEnd(pos int) int {
   return fence
 }
 
+// Return the next index after pos where a new line of text could start
+// (that is, the index of the first non-whitespace character).
+//
 func (l *Line) nextWordStart(pos int) int {
   fence := len(l.C)
   for n := pos; n < fence; n++ {
@@ -113,6 +163,10 @@ func (l *Line) nextWordStart(pos int) int {
   return fence
 }
 
+// (*Line) Wrap() steps through the Line's Cells, recording the offsets
+// where each row of text should begin and end. This information is then used
+// by DrawScrollBack() (below) when writing characters to the game window.
+//
 func (l *Line) Wrap(width int) {
   
   log.Println("(*Line).Wrap() called... (", l.String(), ")")
@@ -176,6 +230,8 @@ func (l *Line) Wrap(width int) {
   
 }
 
+// Returns a new *Line with the given text and attributes.
+//
 func NewLine(text string, fg, bg termbox.Attribute) *Line {
   cellz := make([]Cell, 0, len(text))
   for _, ch := range text {
@@ -185,6 +241,8 @@ func NewLine(text string, fg, bg termbox.Attribute) *Line {
   return &Line{ C: cellz, Width: -1, Starts: nil, Ends: nil, }
 }
 
+// Appends the given text with the supplied attributes to the receiving *Line.
+//
 func (l *Line) Add(text string, fg, bg termbox.Attribute) {
   for _, ch := range text {
     l.C = append(l.C, Cell{ Ch: ch, Fg: fg, Bg: bg, })
@@ -194,23 +252,60 @@ func (l *Line) Add(text string, fg, bg termbox.Attribute) {
   l.Ends = nil
 }
 
+// All currently-remembered Lines of game window history.
 var Lines []*Line = make([]*Line, 0, 0)
+// Dimensions of the terminal window. Set with Recalculate() (below).
 var TermW, TermH int
+// Vertical offsets of the Header line, the game window, the Footer line,
+// and the command input line.
 var HeadY, SbackY, FootY, InputY int
+// If the insertion point in the command entry line gets this far to the
+// right, the view of the command entry line will scroll to prevent it from
+// moving any farther.
 var InputRL int
+// Default terminal colors.
 var DefaultFg, DefaultBg = termbox.ColorDefault, termbox.ColorBlack
+// Contents of the lines directly above and below the game window. As of
+// 2017-08-27, the HeadLine shows the character's current Room name, and
+// the FootLine shows debugging information (when DEBUG == true).
 var HeadLine, FootLine *Line
+// Characters in the command currently being input.
 var Input = make([]rune, 0, 0)
+// Offset of the insertion point in the Input slice.
 var IP int = 0
+// The number of rows of text the game window has been scrolled back. (This is
+// not Lines, but physical rows of characters.)
 var ScrollbackPos int = 0
+// Slice storing remembered commands.
 var cmdHist = make([]string, 0, 0)
+// Which remembered command in the command history is currently being shown.
+// This is equal to len(cmdHist) when the newest, not-yet-remembered command
+// is being entered.
 var cmdHistPtr int = 0
+// Where the latest command is stored when the player starts scrolling back
+// through the command history.
 var cmdStash []rune
+// Where termbox.Events are queued by the goroutine that listens for them.
+// (NB: All evidence suggests that this channel doesn't even need to be
+// buffered, and while I tend to agree with YAGN, accommodating the possibility
+// of a really fast typist with a really slow computer doesn't seem to
+// noticeably complicate the implementation.
 var EventChan = make(chan termbox.Event, EventChanSize)
+// This gets set to false when the client should stop running.
 var KeepRunning = true
+// When the user scrolls the game window back to the earliest remembered line,
+// this gets set to false so they don't just scroll endlessly back through
+// space.
 var CanScrollBack = false
+// Messages from the game server about being logged out arrive before
+// the termbox display is torn down but need to be displayed afterward. They
+// get stashed here.
 var LogoutMessages = make([]string, 0, 0)
 
+// Adds a line of text to the game window. If the number of remembered lines
+// exceeds MaxScrollbackLines, the oldest get trimmed down so only
+// MinScrollbackLines are remembered.
+//
 func AddLine(newLine *Line) {
   log.Println("AddLine(", newLine.String(), "):")
   if len(Lines) >= MaxScrollbackLines {
@@ -223,15 +318,22 @@ func AddLine(newLine *Line) {
   log.Println("    buffer lines:", len(Lines))
 }
 
+// Adds a line of text with the default attributes.
+//
 func AddDefaultLine(text string) {
   AddLine(NewLine(text, DefaultFg, DefaultBg))
 }
 
+// Sets the remembered terminal dimensions to the actual terminal dimensions.
+// Called at initialization and every time the terminal window is resized.
+//
 func Redimension(x, y int) {
   TermW, TermH = x, y
   log.Println("Redimension()ing: (", TermW, TermH, ")")
 }
 
+// Recalculates some important values. Called every time Redimension() is.
+//
 func Recalculate() {
   HeadY  = 0
   SbackY = 1
@@ -242,6 +344,8 @@ func Recalculate() {
               HeadY, SbackY, FootY, InputY)
 }
 
+// Draws the Head Line (above the game window). Called when its text changes.
+//
 func DrawHeadLine() {
   var fence int
   
@@ -260,6 +364,8 @@ func DrawHeadLine() {
   }
 }
 
+// Draw the Foot line (below the game window). Called when its text changes.
+//
 func DrawFootline() {
   var fence int
   
@@ -278,6 +384,8 @@ func DrawFootline() {
   }
 }
 
+// Draw the current command input line. Called when its contents changes.
+//
 func DrawInput() {
   var n int = 0
   var scroll int = 0
@@ -324,6 +432,10 @@ func DrawInput() {
   
 }
 
+// Helper function used by DrawScrollback(). After a Line of text has been
+// Wrap()ped, it draws the chunkth row of characters from that line on the
+// yth row of the terminal window.
+//
 func DrawLineChunk(l *Line, chunk int, y int) {
   log.Println("(*Line) DrawLineChunk(): [", l.Starts[chunk], l.Ends[chunk],
               "], pos:", y, "(", l.String(), ")")
@@ -340,17 +452,21 @@ func DrawLineChunk(l *Line, chunk int, y int) {
   }
 }
 
+// Scroll the game window history one screen backward (if possible).
+//
 func ScrollBackward() {
   if CanScrollBack {
-    delta := (FootY - SbackY) - 2
+    delta := (FootY - SbackY) - ScrollbackOverlap
     ScrollbackPos = ScrollbackPos + delta
     DrawScrollback()
   }
 }
 
+// Scroll the game window history one screen forward (if possible).
+//
 func ScrollForward() {
   if ScrollbackPos > 0 {
-    delta := (FootY - SbackY) - 2
+    delta := (FootY - SbackY) - ScrollbackOverlap
     ScrollbackPos = ScrollbackPos - delta
     if ScrollbackPos < 0 {
       ScrollbackPos = 0
@@ -359,6 +475,8 @@ func ScrollForward() {
   }
 }
 
+// Jump the game window history to the most recent messaging.
+//
 func ScrollToFront() {
   if ScrollbackPos > 0 {
     ScrollbackPos = 0
@@ -366,6 +484,23 @@ func ScrollToFront() {
   }
 }
 
+// Draw the game window.
+//
+// This is the most complex of all the drawing operations. Overview:
+// 
+// Starting with the most recent Line:
+//   * Wrap() it if it is not already wrapped to the current terminal width.
+//   * Write those rows to the terminal, starting from the bottom-most row
+//     and working upward.
+// Repeat with the next-most recent Line, continuing until either the top of
+// the game window has been reached, or the text of all the lines has been
+// written.
+//
+// If the most recent history isn't being viewed (that is, if
+// ScrollbackPos > 0), then wrap lines and count rows of text but don't start
+// writing to the bottom of the game window until the ScrollbackPosth row of
+// text is reached.
+//
 func DrawScrollback() {
   log.Println("DrawScrollback() called...")
   write_start := FootY - 1
@@ -414,6 +549,8 @@ func DrawScrollback() {
   log.Println("...DrawScrollback() finished")
 }
 
+// Insert a character into the current command and redraw the input line.
+//
 func InsertInInput(r rune) {
   if IP == len(Input) {
     Input = append(Input, r)
@@ -429,6 +566,9 @@ func InsertInInput(r rune) {
   DrawInput()
 }
 
+// If possible, delete the character to the left of the insertion point in
+// the current command, then redraw the input line.
+//
 func InputBackspace() {
   if IP > 0 {
     Input = append(Input[:IP-1], Input[IP:]...)
@@ -437,6 +577,9 @@ func InputBackspace() {
   }
 }
 
+// If possible, delete the character at the insertion point in the current
+// command, then redraw the input line.
+//
 func InputDelete() {
   if IP < len(Input) {
     Input = append(Input[:IP], Input[IP+1:]...)
@@ -444,6 +587,11 @@ func InputDelete() {
   }
 }
 
+// Move the insertion point in the current command right delta characters
+// (negative values of delta will move the IP left). Bound movement so that
+// the IP doesn't go beyond the beginning or end of the current command.
+// Redraw the input line.
+//
 func MoveInputIp(delta int) {
   new_ip := IP + delta
   if new_ip < 0 {
@@ -456,6 +604,10 @@ func MoveInputIp(delta int) {
   DrawInput()
 }
 
+// If possible, populate the command input line with a command from earlier in
+// command the history. Stash the latest command first, if necessary. Redraw
+// the input line.
+//
 func CmdHistBack() {
   if cmdHistPtr > 0 {
     if cmdHistPtr == len(cmdHist) {
@@ -468,6 +620,10 @@ func CmdHistBack() {
   }
 }
 
+// If possible, populate the command input line with a command from later in
+// command the history, retrieving the latest command from the stash, if
+// necessary. Redraw the input line.
+//
 func CmdHistForward() {
   if cmdHistPtr < len(cmdHist) {
     cmdHistPtr++
@@ -481,6 +637,9 @@ func CmdHistForward() {
   }
 }
 
+// Send the current command to the game. Add it to the history if it's long
+// enough, and clear the input line. Redraw the input line.
+//
 func SendCommand() {
   log.Println("SendCommand():")
   if len(Input) > 0 {
@@ -511,12 +670,19 @@ func SendCommand() {
   }
 }
 
+// This is meant to be run as a goroutine, listening for termbox.Events
+// and queuing them to be handled.
+//
 func ListenForEvents() {
   for {
     EventChan <- termbox.PollEvent()
   }
 }
 
+// Dispatch handling for queued termbox.Events. These include key (adding
+// characters to or editing the current command, scrolling the history window)
+// and resize events.
+//
 func HandleEvent(e termbox.Event) {
   switch e.Type {
   
@@ -582,6 +748,9 @@ func HandleEvent(e termbox.Event) {
   termbox.Flush()
 }
 
+// Panic on error with an appropriate message. Certain errors just shouldn't
+// be recoverable.
+//
 func die(err error, fmtstr string, args ...interface{}) {
   if err != nil {
     fmt.Printf(fmtstr, args...)
@@ -589,15 +758,23 @@ func die(err error, fmtstr string, args ...interface{}) {
   }
 }
 
+// An Env represents an envelope for a message sent to or received from the
+// game.
+//
 type Env struct {
   Type string
   Text string
 }
 
+// Holds queued Envs for processing.
 var EnvChan = make(chan Env, 256)
+// For sending and receiving data from the game.
 var ncdr *json.Encoder
 var dcdr *json.Decoder
 
+// This is meant to be run as a goroutine. It listens for messages sent from
+// the game and queues them for handling.
+//
 func ListenForEnvelopes(d *json.Decoder) {
   var e Env
   var err error
@@ -617,6 +794,9 @@ func ListenForEnvelopes(d *json.Decoder) {
   }
 }
 
+// Handle queued messages from the game, adding text to the game window,
+// changing the Head line or Foot line, or logging the user out as appropriate.
+//
 func ProcessEnvelope(e Env) {
   switch e.Type {
   
@@ -660,6 +840,8 @@ func ProcessEnvelope(e Env) {
   termbox.Flush()
 }
 
+// Read the configuration file and set the appropriate variable values.
+//
 func Config() {
   var cfg_file string
   flag.StringVar(&cfg_file, "c", DefaultCfgFile, "configuration file to use")
@@ -669,6 +851,7 @@ func Config() {
   dconfig.AddString(&host,            "host",       dconfig.STRIP)
   dconfig.AddInt(&port,               "port",       dconfig.UNSIGNED)
   dconfig.AddInt(&MinScrollbackLines, "scrollback", dconfig.UNSIGNED)
+  dconfig.AddInt(&ScrollbackOverlap,  "scrollback_overlap", dconfig.UNSIGNED)
   dconfig.AddBool(&SkipAfterSend,     "extra_line")
   dconfig.AddBool(&ShowNews,          "show_news")
   dconfig.AddInt(&MinCmdLen,          "min_cmd_len", dconfig.UNSIGNED)
@@ -681,13 +864,17 @@ func Config() {
   MaxCmdHistSize     = 2 * MinCmdHistSize
 }
 
+// Tear down the termbox display and write any logout messages to stdout.
+//
 func Finalize() {
   termbox.Close()
   for _, m := range LogoutMessages {
     fmt.Printf("\n%s\n", m)
   }
 }
-
+// Enter a very primitive termbox interaction mode to get the user's password,
+// so as to echo '*'s instead of the password characters.
+//
 func getPassword() (string, error) {
   err := termbox.Init()
   if err != nil {
@@ -733,12 +920,13 @@ func getPassword() (string, error) {
     }
   }
 }
-    
+
 
 func main() {
   var err error
   Config()
   
+  // Set up logging if DEBUG == true.
   if DEBUG {
     LogFile, err = os.OpenFile(LogFileName, os.O_TRUNC|os.O_WRONLY|os.O_CREATE, 0644)
     if err != nil {
@@ -761,6 +949,7 @@ func main() {
     }
   }
   
+  // Read uname and password if necessary.
   var uname, pwd string
   login_scanner := bufio.NewScanner(os.Stdin)
   if Uname == "" {
@@ -780,6 +969,7 @@ func main() {
     pwd = Pwd
   }
   
+  // Initiate connection and do protocol.
   conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", host, port))
   die(err, "Error connecting to %s:%d: %s\n", host, port, err)
   defer conn.Close()
@@ -788,6 +978,8 @@ func main() {
   dcdr = json.NewDecoder(conn)
   
   var m Env
+  // The first message rec'd from the game is the required frontend
+  // version, but the message isn't used.
   err = dcdr.Decode(&m)
   die(err, "Error decoding welcome message: %s\n", err)
   if m.Type != "version" {
@@ -795,6 +987,8 @@ func main() {
   }
   fmt.Printf("Req'd frontend version: %s\n", m.Text)
   
+  // The game then expects the client version, the username, and the password.
+  // (The game will log us out if the client isn't sufficently up-to-date.)
   err = ncdr.Encode(Env{ Type: "version", Text: fmt.Sprintf("%d", clientVersion) })
   die(err, "Error sending version: %s\n", err)
   err = ncdr.Encode(Env{ Type: "uname", Text: uname })
@@ -802,6 +996,7 @@ func main() {
   err = ncdr.Encode(Env{ Type: "pwd", Text: pwd })
   die(err, "Error sending password: %s\b", err)
   
+  // Set up the termbox interface and draw initial versions of everything.
   err = termbox.Init()
   if err != nil {
     panic(err)
@@ -824,9 +1019,12 @@ func main() {
     DrawInput()
   }
   
+  // Launch our goroutines which listen for messages from the game and
+  // input from the user.
   go ListenForEnvelopes(dcdr)
   go ListenForEvents()
   
+  // Process queued events until we get logged out!
   for KeepRunning {
     select {
     case e := <- EventChan:
